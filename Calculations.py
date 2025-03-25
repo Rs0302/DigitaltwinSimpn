@@ -3,9 +3,10 @@ import numpy as np
 from simpn.simulator import SimProblem, SimToken
 from simpn.reporters import SimpleReporter
 
+
 directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
 
-data =pd.read_csv(directory)
+data = pd.read_csv(directory)
 
 #Find case durations
 
@@ -42,6 +43,15 @@ avg_int_time = np.mean(data_sorted["InterarrivalTime"])
 
 print(f'average inter arrival time equals {avg_int_time}')
 
+#The transition time between cases
+
+data_sorted["TransitionTime"] = data_sorted.groupby("CaseId")["StartTimestamp"].diff().dt.total_seconds()
+
+data_sorted = data_sorted.dropna()
+
+avg_transition_time = data_sorted["TransitionTime"].mean()
+print(f"Average Transition Time {avg_transition_time:.2f} seconds")
+
 #Find number of resources
 
 n_resource_location = data.groupby(["Location","Role"])["Resource"].nunique().reset_index()
@@ -55,6 +65,51 @@ print(n_resource_location)
 total_duration = max(data["EndTimestamp"]) - min(data["StartTimestamp"])
 
 print(f'total duration of the dataset is {total_duration}')
+
+#Duration of the Activities
+
+data["TaskDuration"] = (data["EndTimestamp"] - data["StartTimestamp"]).dt.total_seconds()
+
+avg_task_duration = data.groupby("ActivityName")["TaskDuration"].mean().reset_index()
+
+print(f"Average duration per activity: {avg_task_duration}")
+
+#number of each activities
+
+N_of_activity = data["ActivityName"].value_counts()
+
+print(f"Number of different activities {N_of_activity}")
+
+#Probability of a case being in a case
+
+P_task = N_of_activity/n_cases
+
+print(f"Probability of a task being in a case {P_task}")
+
+#Probability of next task being a certain task
+
+data_sorted_CaseID = data.sort_values(by=["CaseId", "StartTimestamp"])
+
+data_sorted_CaseID["NextActivity"] = data_sorted_CaseID.groupby("CaseId")["ActivityName"].shift(-1)
+
+Next_task = data_sorted_CaseID.dropna(subset=["NextActivity"]) # drop when no next task (new case)
+
+Next_task_count = Next_task.groupby(["ActivityName", "NextActivity"]).size().reset_index(name="Count")
+
+Next_task_count["TotalCount"] = Next_task_count.groupby("ActivityName")["Count"].transform("sum")
+
+Next_task_count["Probability"] = Next_task_count["Count"] / Next_task_count["TotalCount"]
+
+Next_task_count.drop(columns=["TotalCount"], inplace=True)
+
+#print(f"transition between activities: {Next_task_count}")
+
+transition_matrix = Next_task_count.pivot(index="ActivityName", columns="NextActivity", values="Probability")
+
+
+
+
+''''
 
 #Simulate process
 
@@ -102,6 +157,7 @@ process_sim.add_event([busy], [resource], complete)
 process_sim.simulate(3730956, SimpleReporter())
 
 #changes 2
+'''
 
 
 
