@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from simpn.simulator import SimProblem, SimToken
 from simpn.reporters import SimpleReporter
+import scipy
 
-#from Visuals import average_duration
 
 directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
 
@@ -55,6 +55,23 @@ def inter_arrival_time(data):
     return avg_int_time
 
 print(f'average inter arrival time equals {inter_arrival_time(data)}')
+
+def inter_arrival_time_out(data):
+
+    data_sorted = data.sort_values("StartTimestamp")
+
+    data["StartTimestamp"] = pd.to_datetime(data_sorted["StartTimestamp"])
+
+    data_sorted["InterarrivalTime"] = data_sorted["StartTimestamp"].diff().dt.total_seconds()
+
+    data_sorted["Z_score"] = scipy.stats.zscore(data_sorted["InterarrivalTime"], nan_policy = "omit")
+
+    threshold_Z = 2
+
+    no_outliers_z = data_sorted[(data_sorted["Z_score"] < threshold_Z)]
+
+    return no_outliers_z
+
 
 #The transition time between cases
 
@@ -158,10 +175,19 @@ def task_duration(data):
 
     avg_task_duration = data.groupby("ActivityName")["TaskDuration"].mean().reset_index()
 
-    return avg_task_duration
+    task_std = data.groupby("ActivityName")["TaskDuration"].std().reset_index()
+
+    avg_task_duration.columns = ["ActivityName", "AvgTaskDuration"]
+
+    task_std.columns = ["ActivityName", "Std_TaskDuration"]
+
+    task_stats = avg_task_duration.merge(task_std, on = "ActivityName", how = "left")
+
+    return task_stats
+
+print(task_duration(data))
 
 # Rename for clarity
-avg_task_duration.columns = ["ActivityName", "AvgTaskDuration"]
 
 print(avg_task_duration)
 
@@ -171,12 +197,14 @@ def task_per_resource(data):
 
     tasks_per_resource = data.groupby("Resource")["ActivityName"].count().reset_index()
 
+    tasks_per_resource.columns = ["Resource", "TaskCount"]
+
     return tasks_per_resource
 
 # Rename for clarity
-task_per_resource(data).columns = ["Resource", "TaskCount"]
 
-print(task_per_resource)
+
+print(task_per_resource(data))
 
 def task_duration_resource(data):
     data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
@@ -188,12 +216,17 @@ def task_duration_resource(data):
     # Group by Resource and ActivityName to compute the average duration
     avg_task_duration = data.groupby(["Resource", "ActivityName"])["TaskDuration"].mean().reset_index()
 
+    task_std = data.groupby(["Resource", "ActivityName"])["TaskDuration"].std().reset_index()
+
     # Rename column for clarity
     avg_task_duration.rename(columns={"TaskDuration": "AverageDurationSeconds"}, inplace=True)
+    task_std.rename(columns={"TaskDuration": "StdTaskDuration"}, inplace=True)
 
-    return avg_task_duration
-task_durations = task_duration_resource(data)
-print(task_durations)
+    task_resource_stats = avg_task_duration.merge(task_std, on = "ActivityName", how = "left")
+
+    return task_resource_stats
+
+print(task_duration_resource(data))
 
 def resource_calendar(data):
     # Convert timestamps to datetime
