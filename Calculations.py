@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
-from simpn.simulator import SimProblem, SimToken
-from simpn.reporters import SimpleReporter
 import scipy
+
 
 
 directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
@@ -69,6 +68,8 @@ def inter_arrival_time_out(data):
     threshold_Z = 2
 
     no_outliers_z = data_sorted[(data_sorted["Z_score"] < threshold_Z)]
+
+    #output = no_outliers_z["InterarrivalTime"].mean()
 
     return no_outliers_z
 
@@ -210,19 +211,16 @@ def task_duration_resource(data):
     data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
     data["EndTimestamp"] = pd.to_datetime(data["EndTimestamp"])
 
-    # Calculate task duration
     data["TaskDuration"] = (data["EndTimestamp"] - data["StartTimestamp"]).dt.total_seconds()
 
-    # Group by Resource and ActivityName to compute the average duration
     avg_task_duration = data.groupby(["Resource", "ActivityName"])["TaskDuration"].mean().reset_index()
 
     task_std = data.groupby(["Resource", "ActivityName"])["TaskDuration"].std().reset_index()
 
-    # Rename column for clarity
     avg_task_duration.rename(columns={"TaskDuration": "AverageDurationSeconds"}, inplace=True)
     task_std.rename(columns={"TaskDuration": "StdTaskDuration"}, inplace=True)
 
-    task_resource_stats = avg_task_duration.merge(task_std, on = "ActivityName", how = "left")
+    task_resource_stats = avg_task_duration.merge(task_std, on = ["Resource", "ActivityName"], how = "left")
 
     return task_resource_stats
 
@@ -257,57 +255,22 @@ def resource_calendar(data):
 
 print(resource_calendar(data))
 
+def resource_task_map(data):
+    return data.groupby("Resource")["ActivityName"].unique().to_dict()
 
-''''
+def duration_lookup(data):
+    stats = task_duration_resource(data)
+    duration_lookup = {}
 
-#Simulate process
+    for _, row in stats.iterrows():
+        duration_lookup[(row["Resource"], row["ActivityName"])] = {
+            "mean": row["AverageDurationSeconds"],
+            "std": row["StdTaskDuration"]
+        }
 
+    return duration_lookup
 
-# Create a simulation model
-process_sim = SimProblem()
-
-# Define process state variables
-arrival = process_sim.add_var("arrival")
-waiting = process_sim.add_var("waiting")
-resource = process_sim.add_var("resource")
-busy = process_sim.add_var("busy")
-
-# Initialize simulation state
-resource.put("R1")
-resource.put("R2")
-resource.put("R3")
-resource.put("R4")
-resource.put("R5")
-#resource.put("R6")
-#resource.put("R7")
-
-arrival.put(1)  # Start case numbering
-
-# Define event: case arrival with interarrival time from the dataset
-
-def arrive(a):
-    return [SimToken(a+1, delay=3716), SimToken(f"Case_{a}")]
-
-process_sim.add_event([arrival], [arrival, waiting], arrive)
-
-# Define event: start processing a case, with delay of the time from the dataset
-def start(c, r):
-    return [SimToken((c, r), delay=206276)]  # Exponential service time
-
-process_sim.add_event([waiting, resource], [busy], start)
-
-# Define event: complete processing
-def complete(b):
-    return [SimToken(b[1])]  # Resource becomes available again
-
-process_sim.add_event([busy], [resource], complete)
-
-# Run the simulation for the time from the datasets
-process_sim.simulate(3730956, SimpleReporter())
-
-#changes 2
-'''
-
+print(inter_arrival_time_out(data))
 
 
 
