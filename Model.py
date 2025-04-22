@@ -1,48 +1,105 @@
 import pandas as pd
 import numpy as np
 import scipy
+from simpn.prototypes import BPMNTask, BPMNStartEvent
 from simpn.simulator import SimProblem, SimToken
 from simpn.reporters import SimpleReporter
+import Calculations
+from Calculations import task_duration_resource, duration_lookup, resource_task_map, task_task_transition, \
+    inter_arrival_time
 
-process_sim = SimProblem()
+directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
 
-# Define process state variables
-arrival = process_sim.add_var("arrival")
-waiting = process_sim.add_var("waiting")
-resource = process_sim.add_var("resource")
-busy = process_sim.add_var("busy")
+data = pd.read_csv(directory)
 
-# Initialize simulation state
-resource.put("R1")
-resource.put("R2")
-resource.put("R3")
-resource.put("R4")
-resource.put("R5")
-#resource.put("R6")
-#resource.put("R7")
+sim = SimProblem()
 
-arrival.put(1)  # Start case numbering
+#Tasks
+inv_pros = sim.add_var("Invoice Processor")
+inv_app = sim.add_var("Invoice Approver")
 
-# Define event: case arrival with interarrival time from the dataset
+#Queues
+inv_req = sim.add_var("Invoice Request")
+app_req = sim.add_var("Approval Request")
+req_check_pay = sim.add_var("Queue Check Customer Payment")
+req_comp_cust_memo = sim.add_var("Queue Complete the Customer Memo")
+req_conf_pay_recv = sim.add_var("Queue Confirm Payment Received")
+req_cred_memo_create = sim.add_var("Queue Credit Memo Creation")
+req_cred_memo_entry = sim.add_var("Queue Credit Memo Entry")
+req_fill_cred_memo = sim.add_var("Queue Fill Credit Memo")
+req_refund_cust = sim.add_var("Queue Refund Customer")
+req_refund_spec_voucher = sim.add_var("Queue Refund With Special Voucher")
+req_refund_std_voucher = sim.add_var("Queue Refund With Standard Voucher")
+req_reject_inv = sim.add_var("Queue Reject Invoice")
+req_reissue_inv = sim.add_var("Queue Re-issuing the Invoice")
 
-def arrive(a):
-    return [SimToken(a+1, delay=3716), SimToken(f"Case_{a}")]
+#resources
+inv_app.put("Jessie")
+inv_pros.put("Casey")
 
-process_sim.add_event([arrival], [arrival, waiting], arrive)
+done = sim.add_var("done")
 
-# Define event: start processing a case, with delay of the time from the dataset
-def start(c, r):
-    return [SimToken((c, r), delay=206276)]  # Exponential service time
+def inv_entry(c, r):
+    return[SimToken((c, r), delay = 10)]
+BPMNTask(sim, [inv_req, inv_pros], [app_req, inv_pros], "Invoice Entry", inv_entry)
 
-process_sim.add_event([waiting, resource], [busy], start)
 
-# Define event: complete processing
-def complete(b):
-    return [SimToken(b[1])]  # Resource becomes available again
+def check_cust_pay(c, r):
+    return[SimToken((c, r), delay = 10)]
+BPMNTask(sim, [req_check_pay, inv_pros], [req_cred_memo_entry, inv_pros], "Check Customer Payment", check_cust_pay)
 
-process_sim.add_event([busy], [resource], complete)
+def conf_pay_rec(c, r):
+    return[SimToken((c,r), delay = 10)]
+BPMNTask(sim, [req_conf_pay_recv, inv_pros], [req_refund_std_voucher, inv_pros], "Confirm Payment Received", conf_pay_rec)
 
-# Run the simulation for the time from the datasets
-process_sim.simulate(3730956, SimpleReporter())
+def cred_memo_ent(c, r):
+    return[SimToken((c,r), delay = 10)]
+BPMNTask(sim, [req_cred_memo_entry, inv_pros], [req_refund_cust, inv_pros], "Credit Memo Entry", cred_memo_ent)
 
-#changes 2
+def cred_memo_create(c,r):
+    return[SimToken((c,r), delay = 10)]
+BPMNTask(sim, [req_cred_memo_create, inv_pros], [req_fill_cred_memo, inv_pros], "Credit Memo Creation", cred_memo_create)
+
+def fill_cred_memo(c,r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_fill_cred_memo, inv_pros], [req_reissue_inv, inv_pros], "Fill Credit Memo", fill_cred_memo)
+
+def ref_cust(c, r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_refund_cust, inv_pros], [req_reissue_inv, inv_pros], "Refund Customer", ref_cust)
+
+def reissue_inv(c, r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_reissue_inv, inv_pros], [done, inv_pros], "Re-Issuing the Invoice", reissue_inv)
+
+def ref_special(c, r):
+    return[SimToken((c,r), delay = 10)]
+BPMNTask(sim, [req_refund_spec_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Special Voucher", ref_special)
+
+def ref_standard(c, r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_refund_std_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Standard Voucher", ref_standard)
+
+def comp_cust_memo(c, r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_comp_cust_memo, inv_app], [app_req, inv_app], "Complete the Customer Memo", comp_cust_memo)
+
+def rej_inc (c,r):
+    return [SimToken((c, r), delay=10)]
+BPMNTask(sim, [req_reject_inv, inv_app], [req_refund_std_voucher, inv_app], "Reject Invoice", rej_inc)
+
+def approve(c, r):
+    return [SimToken((c, r), delay = np.random.exponential(scale=10))]
+BPMNTask(sim, [app_req, inv_app], [done, inv_app], "approved", approve)
+
+def interarrival_time():
+    return np.random.exponential(scale=10)
+BPMNStartEvent(sim, [], [inv_req], "arrival", interarrival_time)
+
+sim.simulate(60, SimpleReporter())
+
+
+
+
+
+

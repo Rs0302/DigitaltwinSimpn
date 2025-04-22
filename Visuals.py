@@ -83,6 +83,30 @@ def plt_task_resource(data):
 
 print(plt_task_resource(data))
 
+def resource_tasks(data):
+    res_tasks = Calculations.resource_task_map(data)
+
+    rows = []
+    for resource, tasks in res_tasks.items():
+        for task in tasks:
+            rows.append({"Resource": resource, "Task": task})
+    resource_task_df = pd.DataFrame(rows)
+
+    pivot = resource_task_df.pivot_table(index="Resource", columns="Task", aggfunc=lambda x: 1, fill_value=0)
+
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(pivot, cmap="YlGnBu", linewidths=0.5, linecolor="gray", cbar=False, annot=True, fmt='d')
+
+    plt.title("Which Resource Performs Which Task")
+    plt.xlabel("Task")
+    plt.ylabel("Resource")
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()
+
+    return plt.show()
+
+print(resource_tasks(data))
 
 
 
