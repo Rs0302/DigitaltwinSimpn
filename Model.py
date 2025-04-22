@@ -33,6 +33,12 @@ req_refund_std_voucher = sim.add_var("Queue Refund With Standard Voucher")
 req_reject_inv = sim.add_var("Queue Reject Invoice")
 req_reissue_inv = sim.add_var("Queue Re-issuing the Invoice")
 
+#Choices
+c_comp_cust = sim.add_var("Choose between rejecting or approving after Completing Customer Memo")
+c_conf_pay = sim.add_var("Choose between refunding with special or standard voucher after confirming payment received")
+c_inv_entry = sim.add_var("Choose between check customer payment or confirm payment received after invoice entry")
+c_rej_inv = sim.add_var("Choose between refund with special or standard voucher after rejecting the invoice")
+
 #resources
 inv_app.put("Jessie")
 inv_pros.put("Casey")
@@ -41,7 +47,7 @@ done = sim.add_var("done")
 
 def inv_entry(c, r):
     return[SimToken((c, r), delay = 10)]
-BPMNTask(sim, [inv_req, inv_pros], [app_req, inv_pros], "Invoice Entry", inv_entry)
+BPMNTask(sim, [inv_req, inv_pros], [c_inv_entry, inv_pros], "Invoice Entry", inv_entry)
 
 
 def check_cust_pay(c, r):
@@ -50,7 +56,7 @@ BPMNTask(sim, [req_check_pay, inv_pros], [req_cred_memo_entry, inv_pros], "Check
 
 def conf_pay_rec(c, r):
     return[SimToken((c,r), delay = 10)]
-BPMNTask(sim, [req_conf_pay_recv, inv_pros], [req_refund_std_voucher, inv_pros], "Confirm Payment Received", conf_pay_rec)
+BPMNTask(sim, [req_conf_pay_recv, inv_pros], [c_conf_pay, inv_pros], "Confirm Payment Received", conf_pay_rec)
 
 def cred_memo_ent(c, r):
     return[SimToken((c,r), delay = 10)]
@@ -82,21 +88,53 @@ BPMNTask(sim, [req_refund_std_voucher, inv_pros], [req_comp_cust_memo, inv_pros]
 
 def comp_cust_memo(c, r):
     return [SimToken((c, r), delay=10)]
-BPMNTask(sim, [req_comp_cust_memo, inv_app], [app_req, inv_app], "Complete the Customer Memo", comp_cust_memo)
+BPMNTask(sim, [req_comp_cust_memo, inv_app], [c_comp_cust, inv_app], "Complete the Customer Memo", comp_cust_memo)
 
 def rej_inc (c,r):
     return [SimToken((c, r), delay=10)]
-BPMNTask(sim, [req_reject_inv, inv_app], [req_refund_std_voucher, inv_app], "Reject Invoice", rej_inc)
+BPMNTask(sim, [req_reject_inv, inv_app], [c_rej_inv, inv_app], "Reject Invoice", rej_inc)
 
 def approve(c, r):
     return [SimToken((c, r), delay = np.random.exponential(scale=10))]
 BPMNTask(sim, [app_req, inv_app], [done, inv_app], "approved", approve)
 
 def interarrival_time():
-    return np.random.exponential(scale=10)
+    return np.random.uniform(100, 1000)
 BPMNStartEvent(sim, [], [inv_req], "arrival", interarrival_time)
 
-sim.simulate(60, SimpleReporter())
+def c_comp_cust_memo(c):
+    percentage = np.random.uniform(1,1000)
+    if percentage <= 575:
+        return [SimToken(c), None]
+    else:
+        return [None, SimToken(c)]
+sim.add_event([c_comp_cust], [app_req, req_reject_inv], c_comp_cust_memo)
+
+def c_conf_pay_rec(c):
+    percentage = np.random.uniform(1,1000)
+    if percentage <= 138:
+        return [SimToken(c), None]
+    else:
+        return [None, SimToken(c)]
+sim.add_event([c_conf_pay], [req_refund_spec_voucher, req_refund_std_voucher], c_conf_pay_rec)
+
+def c_invoice_entry(c):
+    percentage = np.random.uniform(1,1000)
+    if percentage <= 511:
+        return [SimToken(c), None]
+    else:
+        return [None, SimToken(c)]
+sim.add_event([c_inv_entry], [req_check_pay, req_conf_pay_recv], c_invoice_entry)
+
+def c_reject_inv(c):
+    percentage = np.random.uniform(1, 1000)
+    if percentage <= 62:
+        return [SimToken(c), None]
+    else:
+        return [None, SimToken(c)]
+sim.add_event([c_rej_inv], [req_refund_spec_voucher, req_refund_std_voucher], c_reject_inv)
+
+sim.simulate(100000, SimpleReporter())
 
 
 
