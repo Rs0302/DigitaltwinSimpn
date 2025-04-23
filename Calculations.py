@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import scipy
+import json
 
 
 
@@ -273,8 +274,48 @@ def duration_lookup(data):
 print(inter_arrival_time_out(data))
 
 
+def resource_task_statistics(data):
+
+    data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
+    data["EndTimestamp"] = pd.to_datetime(data["EndTimestamp"])
+
+    data["TaskDuration"] = (data["EndTimestamp"] - data["StartTimestamp"]).dt.total_seconds()
+
+    stats = data.groupby(["Resource", "ActivityName"])["TaskDuration"].agg(["mean", "std"]).reset_index()
+
+    stats = stats.rename(columns={"mean": "MeanDuration", "std": "StdDuration"})
+
+    return stats
 
 
+def res_task_json(data):
+    stats_df = resource_task_statistics(data)
+
+    lookup = {}
+    for _, row in stats_df.iterrows():
+        resource = row["Resource"]
+        activity = row["ActivityName"]
+        mean = row["MeanDuration"]
+        std = row["StdDuration"]
+
+        if resource not in lookup:
+            lookup[resource] = {}
+
+        lookup[resource][activity] = {
+            "mean": mean,
+            "std": std
+        }
+
+    lookup_json = json.dumps(lookup, indent = 4)
+
+    return lookup, lookup_json
+
+lookup_dict, lookup_json = res_task_json(data)
+
+with open("res_task_json.json", "w") as f:
+    json.dump(lookup_dict, f, indent = 4)
+
+print(res_task_json(data))
 
 
 

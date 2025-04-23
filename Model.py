@@ -4,6 +4,7 @@ import scipy
 from simpn.prototypes import BPMNTask, BPMNStartEvent
 from simpn.simulator import SimProblem, SimToken
 from simpn.reporters import SimpleReporter
+import json
 import Calculations
 from Calculations import task_duration_resource, duration_lookup, resource_task_map, task_task_transition, \
     inter_arrival_time
@@ -53,60 +54,112 @@ inv_pros.put("Riley")
 #finish
 done = sim.add_var("done")
 
+with open("res_task_json.json", "r") as f:
+    lookup_dict = json.load(f)
+
+def resource_task_behavior(resource_name, task_name, lookup_dict):
+    try:
+        stats = lookup_dict[resource_name][task_name]
+        mean = stats["mean"]
+        std = stats["std"]
+
+        delay = max(1, np.random.normal(loc=mean, scale=std))
+        return delay
+    except KeyError:
+        # Default delay if missing
+        return 10000
+
+
+
 def inv_entry(c, r):
-    return[SimToken((c, r), delay = np.random.normal(10843, 9366))]
+    task_name = "Invoice Entry"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c, r), delay = delay)]
 BPMNTask(sim, [inv_req, inv_pros], [c_inv_entry, inv_pros], "Invoice Entry", inv_entry)
 
 def check_cust_pay(c, r):
-    return[SimToken((c, r), delay = np.random.normal(9889, 9259))]
+    task_name = "Check Customer Payment"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_check_pay, inv_pros], [req_cred_memo_entry, inv_pros], "Check Customer Payment", check_cust_pay)
 
 def conf_pay_rec(c, r):
-    return[SimToken((c,r), delay = np.random.normal(10731, 8874))]
+    task_name = "Confirm Payment Received"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c,r), delay = delay)]
 BPMNTask(sim, [req_conf_pay_recv, inv_pros], [c_conf_pay, inv_pros], "Confirm Payment Received", conf_pay_rec)
 
 def cred_memo_ent(c, r):
-    return[SimToken((c,r), delay = np.random.normal(9450, 9106))]
+    task_name = "Credit Memo Entry"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c,r), delay = delay)]
 BPMNTask(sim, [req_cred_memo_entry, inv_pros], [req_refund_cust, inv_pros], "Credit Memo Entry", cred_memo_ent)
 
 def cred_memo_create(c,r):
-    return[SimToken((c,r), delay = np.random.normal(9073, 9260))]
+    task_name = "Credit Memo Creation"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c,r), delay = delay)]
 BPMNTask(sim, [req_cred_memo_create, inv_pros], [req_fill_cred_memo, inv_pros], "Credit Memo Creation", cred_memo_create)
 
 def fill_cred_memo(c,r):
-    return [SimToken((c, r), delay = np.random.normal(8374, 8562))]
+    task_name = "Fill Credit Memo"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_fill_cred_memo, inv_pros], [req_reissue_inv, inv_pros], "Fill Credit Memo", fill_cred_memo)
 
 def ref_cust(c, r):
-    return [SimToken((c, r), delay = np.random.normal(10750, 8897))]
+    task_name = "Refund Customer"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_refund_cust, inv_pros], [req_reissue_inv, inv_pros], "Refund Customer", ref_cust)
 
 def reissue_inv(c, r):
-    return [SimToken((c, r), delay = np.random.normal(8122, 8952))]
+    task_name = "Re-issuing the invoice"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_reissue_inv, inv_pros], [done, inv_pros], "Re-Issuing the Invoice", reissue_inv)
 
 def ref_special(c, r):
-    return[SimToken((c,r), delay = np.random.normal(53918, 14874))]
+    task_name = "Refund With Special Voucher"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return[SimToken((c,r), delay = delay)]
 BPMNTask(sim, [req_refund_spec_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Special Voucher", ref_special)
 
 def ref_standard(c, r):
-    return [SimToken((c, r), delay = np.random.normal(5652, 5907))]
+    task_name = "Refund With Standard Voucher"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_refund_std_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Standard Voucher", ref_standard)
 
 def comp_cust_memo(c, r):
-    return [SimToken((c, r), delay = np.random.normal(15756, 8254))]
+    task_name = "Complete the Customer Memo"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_comp_cust_memo, inv_app], [c_comp_cust, inv_app], "Complete the Customer Memo", comp_cust_memo)
 
 def rej_inv (c,r):
-    return [SimToken((c, r), delay = np.random.normal(12428, 6778))]
+    task_name = "Reject Invoice"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [req_reject_inv, inv_app], [c_rej_inv, inv_app], "Reject Invoice", rej_inv)
 
 def approve(c, r):
-    shape = 0.9208966428068127
-    loc = 0
-    scale = 6496.16170284509
-    delay = scipy.stats.lognorm.rvs(shape, loc=loc, scale = scale)
-    return [SimToken((c, r), delay = np.random.normal(172627, 9045))]
+    task_name = "Approve Invoice"
+    resource_name = r
+    delay = resource_task_behavior(resource_name, task_name, lookup_dict)
+    return [SimToken((c, r), delay = delay)]
 BPMNTask(sim, [app_req, inv_app], [done, inv_app], "approved", approve)
 
 def interarrival_time():
