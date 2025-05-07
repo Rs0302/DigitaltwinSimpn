@@ -46,34 +46,42 @@ def inter_arrival_time(data):
 
     data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
 
-    data_sorted = data.sort_values("StartTimestamp")
+    invoice_time = data[data["ActivityName"] == "Invoice Entry"].copy()
 
-    data_sorted["InterarrivalTime"] = data_sorted["StartTimestamp"].diff().dt.total_seconds()
+    invoice_time_sorted = invoice_time.sort_values("StartTimestamp")
 
-    avg_int_time = np.mean(data_sorted["InterarrivalTime"])
+    invoice_time_sorted["InterarrivalTime"] = invoice_time_sorted["StartTimestamp"].diff().dt.total_seconds()
+
+    avg_int_time = invoice_time_sorted["InterarrivalTime"].dropna().mean()
 
     return avg_int_time
 
 print(f'average inter arrival time equals {inter_arrival_time(data)}')
 
-def inter_arrival_time_out(data):
+def clean_data(data):
+    data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
 
-    data_sorted = data.sort_values("StartTimestamp")
+    invoice_time = data[data["ActivityName"] == "Invoice Entry"].copy()
 
-    data["StartTimestamp"] = pd.to_datetime(data_sorted["StartTimestamp"])
+    invoice_time_sorted = invoice_time.sort_values("StartTimestamp")
 
-    data_sorted["InterarrivalTime"] = data_sorted["StartTimestamp"].diff().dt.total_seconds()
+    invoice_time_sorted["InterarrivalTime"] = invoice_time_sorted["StartTimestamp"].diff().dt.total_seconds()
 
-    data_sorted["Z_score"] = scipy.stats.zscore(data_sorted["InterarrivalTime"], nan_policy = "omit")
+    invoice_time_sorted["Z_score"] = scipy.stats.zscore(invoice_time_sorted["InterarrivalTime"], nan_policy = "omit")
 
     threshold_Z = 2
 
-    no_outliers_z = data_sorted[(data_sorted["Z_score"] < threshold_Z)]
-
-    #output = no_outliers_z["InterarrivalTime"].mean()
+    no_outliers_z = invoice_time_sorted[(invoice_time_sorted["Z_score"] < threshold_Z)]
 
     return no_outliers_z
 
+def inter_arrival_clean(data):
+
+    output = clean_data(data)["InterarrivalTime"].mean()
+
+    return output
+
+print(f" The average interarrival time after cleaning the data is: {inter_arrival_clean(data)}")
 
 #The transition time between cases
 
@@ -271,8 +279,6 @@ def duration_lookup(data):
 
     return duration_lookup
 
-print(inter_arrival_time_out(data))
-
 
 def resource_task_statistics(data):
 
@@ -317,5 +323,52 @@ with open("res_task_json.json", "w") as f:
 
 print(res_task_json(data))
 
+def json_resource(data):
+
+    role_resource_map = (
+        data.groupby("Role")["Resource"]
+        .unique()
+        .apply(list)
+        .to_dict()
+    )
+    return role_resource_map
+
+role_resource_map = json_resource(data)
+
+with open("json_resource.json", "w") as f:
+    json.dump(role_resource_map, f, indent = 4)
+
+with open("json_resource.json", "r") as f:
+    resource_assignments = json.load(f)
 
 
+def build_availability_calendar(data):
+    data["StartTimestamp"] = pd.to_datetime(data["StartTimestamp"])
+    data["EndTimestamp"] = pd.to_datetime(data["EndTimestamp"])
+
+    data = data.sort_values(by=["Resource", "StartTimestamp"])
+
+    data["NextStart"] = data.groupby("Resource")["StartTimestamp"].shift(-1)
+    data["Availability"] = (data["NextStart"] - data["EndTimestamp"]).dt.total_seconds()
+
+    availability = data.dropna(subset=["Availability"])
+    availability = availability[availability["Availability"] > 0]
+
+    availability["Day"] = data["EndTimestamp"].dt.date
+    availability["Month"] = data["EndTimestamp"].dt.to_period("M")
+    availability["Year"] = data["EndTimestamp"].dt.year
+
+    daily = availability.groupby(["Resource", "Day"])["Availability"].sum().reset_index()
+    monthly = availability.groupby(["Resource", "Month"])["Availability"].sum().reset_index()
+    yearly = availability.groupby(["Resource", "Year"])["Availability"].sum().reset_index()
+
+    return {
+        "raw": availability,
+        "daily": daily,
+        "monthly": monthly,
+        "yearly": yearly
+    }
+
+print(build_availability_calendar(data))
+
+print(resource_task_statistics(data))
