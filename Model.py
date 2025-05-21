@@ -4,10 +4,12 @@ import scipy
 from simpn.prototypes import BPMNTask, BPMNStartEvent
 from simpn.simulator import SimProblem, SimToken
 from simpn.reporters import SimpleReporter
+from simpn.visualisation import Visualisation
 import json
 import Calculations
 from Calculations import task_duration_resource, duration_lookup, resource_task_map, task_task_transition, \
     inter_arrival_time
+import math
 
 directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
 
@@ -18,6 +20,7 @@ sim = SimProblem()
 #Task operators
 inv_pros = sim.add_var("Invoice Processor")
 inv_app = sim.add_var("Invoice Approver")
+
 
 #Queues
 inv_req = sim.add_var("Invoice Request")
@@ -57,6 +60,14 @@ done = sim.add_var("done")
 with open("res_task_json.json", "r") as f:
     lookup_dict = json.load(f)
 
+def working_hours(c,r):
+    time = sim.clock
+    hour = (time / 3600) % 24
+    day = (time / 86400) % 7
+
+
+    return (0 <= day <= 4) and (9 <= hour <= 17)
+
 def resource_task_behavior(resource_name, task_name, lookup_dict):
     try:
         stats = lookup_dict[resource_name][task_name]
@@ -69,101 +80,154 @@ def resource_task_behavior(resource_name, task_name, lookup_dict):
         # Default delay if missing
         return 10000
 
+#delay = np.random.lognormal(1000, 800)
 
+from simpn.reporters import Reporter
+
+
+class MyReporter(Reporter):
+    def __init__(self):
+        self.logs = []
+        self.case_start_times = {}
+        self.case_end_times = {}
+
+    def callback(self, timed_binding):
+
+        binding, time, event = timed_binding
+
+        day = int(time) / 86400
+        seconds = int(time) % 86400
+
+        day_int = math.ceil(day)
+
+        timestamp = f"Day {day_int}, Second {seconds:05}"
+
+        event_name = getattr(event, "name", str(event))
+        bound_values = ", ".join(str(v) for v in binding)
+
+        log_line = f"[{timestamp}] Fired: {event_name} with value: {bound_values}"
+        print(log_line)
+        self.logs.append(log_line)
+
+        for _ in binding:
+            if isinstance(_, tuple) and isinstance(_[0], str):
+                case_id = _[0]
+            elif isinstance(_, str):
+                case_id = _
+            else:
+                continue
+
+            if "arrival" in event_name.lower():
+                self.case_start_times[case_id] = time
+            elif "approved" in event_name.lower() or "done" in event_name.lower():
+                self.case_end_times[case_id] = time
+
+    def get_average_case_time(self):
+        total_time = 0
+        count = 0
+        for case_id in self.case_start_times:
+            if case_id in self.case_end_times:
+                duration = self.case_end_times[case_id] - self.case_start_times[case_id]
+                total_time += duration
+                count += 1
+        return total_time / count if count > 0 else 0
+
+    def get_logs(self):
+        return self.logs
 
 def inv_entry(c, r):
     task_name = "Invoice Entry"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c, r), delay = delay)]
-BPMNTask(sim, [inv_req, inv_pros], [c_inv_entry, inv_pros], "Invoice Entry", inv_entry)
+BPMNTask(sim, [inv_req, inv_pros], [c_inv_entry, inv_pros], "Invoice Entry", inv_entry, guard=working_hours)
 
 def check_cust_pay(c, r):
     task_name = "Check Customer Payment"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_check_pay, inv_pros], [req_cred_memo_entry, inv_pros], "Check Customer Payment", check_cust_pay)
+BPMNTask(sim, [req_check_pay, inv_pros], [req_cred_memo_entry, inv_pros], "Check Customer Payment", check_cust_pay, guard=working_hours)
 
 def conf_pay_rec(c, r):
     task_name = "Confirm Payment Received"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c,r), delay = delay)]
-BPMNTask(sim, [req_conf_pay_recv, inv_pros], [c_conf_pay, inv_pros], "Confirm Payment Received", conf_pay_rec)
+BPMNTask(sim, [req_conf_pay_recv, inv_pros], [c_conf_pay, inv_pros], "Confirm Payment Received", conf_pay_rec, guard=working_hours)
 
 def cred_memo_ent(c, r):
     task_name = "Credit Memo Entry"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c,r), delay = delay)]
-BPMNTask(sim, [req_cred_memo_entry, inv_pros], [req_refund_cust, inv_pros], "Credit Memo Entry", cred_memo_ent)
+BPMNTask(sim, [req_cred_memo_entry, inv_pros], [req_refund_cust, inv_pros], "Credit Memo Entry", cred_memo_ent, guard=working_hours)
 
 def cred_memo_create(c,r):
     task_name = "Credit Memo Creation"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c,r), delay = delay)]
-BPMNTask(sim, [req_cred_memo_create, inv_pros], [req_fill_cred_memo, inv_pros], "Credit Memo Creation", cred_memo_create)
+BPMNTask(sim, [req_cred_memo_create, inv_pros], [req_fill_cred_memo, inv_pros], "Credit Memo Creation", cred_memo_create, guard=working_hours)
 
 def fill_cred_memo(c,r):
     task_name = "Fill Credit Memo"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_fill_cred_memo, inv_pros], [req_reissue_inv, inv_pros], "Fill Credit Memo", fill_cred_memo)
+BPMNTask(sim, [req_fill_cred_memo, inv_pros], [req_reissue_inv, inv_pros], "Fill Credit Memo", fill_cred_memo, guard=working_hours)
 
 def ref_cust(c, r):
     task_name = "Refund Customer"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_refund_cust, inv_pros], [req_reissue_inv, inv_pros], "Refund Customer", ref_cust)
+BPMNTask(sim, [req_refund_cust, inv_pros], [req_reissue_inv, inv_pros], "Refund Customer", ref_cust, guard=working_hours)
 
 def reissue_inv(c, r):
     task_name = "Re-issuing the invoice"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_reissue_inv, inv_pros], [done, inv_pros], "Re-Issuing the Invoice", reissue_inv)
+BPMNTask(sim, [req_reissue_inv, inv_pros], [done, inv_pros], "Re-Issuing the Invoice", reissue_inv, guard=working_hours)
 
 def ref_special(c, r):
     task_name = "Refund With Special Voucher"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return[SimToken((c,r), delay = delay)]
-BPMNTask(sim, [req_refund_spec_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Special Voucher", ref_special)
+BPMNTask(sim, [req_refund_spec_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Special Voucher", ref_special, guard=working_hours)
 
 def ref_standard(c, r):
     task_name = "Refund With Standard Voucher"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_refund_std_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Standard Voucher", ref_standard)
+BPMNTask(sim, [req_refund_std_voucher, inv_pros], [req_comp_cust_memo, inv_pros], "Refund with Standard Voucher", ref_standard, guard=working_hours)
 
 def comp_cust_memo(c, r):
     task_name = "Complete the Customer Memo"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_comp_cust_memo, inv_app], [c_comp_cust, inv_app], "Complete the Customer Memo", comp_cust_memo)
+BPMNTask(sim, [req_comp_cust_memo, inv_app], [c_comp_cust, inv_app], "Complete the Customer Memo", comp_cust_memo, guard=working_hours)
 
 def rej_inv (c,r):
     task_name = "Reject Invoice"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [req_reject_inv, inv_app], [c_rej_inv, inv_app], "Reject Invoice", rej_inv)
+BPMNTask(sim, [req_reject_inv, inv_app], [c_rej_inv, inv_app], "Reject Invoice", rej_inv, guard=working_hours)
 
 def approve(c, r):
     task_name = "Approve Invoice"
     resource_name = r
     delay = resource_task_behavior(resource_name, task_name, lookup_dict)
     return [SimToken((c, r), delay = delay)]
-BPMNTask(sim, [app_req, inv_app], [done, inv_app], "approved", approve)
+BPMNTask(sim, [app_req, inv_app], [done, inv_app], "approved", approve, guard=working_hours)
 
 def interarrival_time():
-    return 3716
+    return 26659
 BPMNStartEvent(sim, [], [inv_req], "arrival", interarrival_time)
 
 def c_comp_cust_memo(c):
@@ -198,7 +262,17 @@ def c_reject_inv(c):
         return [None, SimToken(c)]
 sim.add_event([c_rej_inv], [req_refund_spec_voucher, req_refund_std_voucher], c_reject_inv)
 
-sim.simulate(1000000, SimpleReporter())
+
+#v = Visualisation(sim)
+#v.show()
+
+reporter = MyReporter()
+
+sim.simulate(3628800, MyReporter())
+
+avg_case_time = reporter.get_average_case_time()
+print(f"average case time equals {avg_case_time}")
+
 
 
 
