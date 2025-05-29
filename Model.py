@@ -10,6 +10,7 @@ import Calculations
 from Calculations import task_duration_resource, duration_lookup, resource_task_map, task_task_transition, \
     inter_arrival_time
 import math
+import matplotlib.pyplot as plt
 
 directory = "C:/Users/20213010/OneDrive - TU Eindhoven/Documents/TBK/BEP/SampleData.csv"
 
@@ -17,9 +18,11 @@ data = pd.read_csv(directory)
 
 sim = SimProblem()
 
+'''
 #Task operators
 inv_pros = sim.add_var("Invoice Processor")
 inv_app = sim.add_var("Invoice Approver")
+'''
 
 
 #Queues
@@ -43,18 +46,23 @@ c_conf_pay = sim.add_var("Choose between refunding with special or standard vouc
 c_inv_entry = sim.add_var("Choose between check customer payment or confirm payment received after invoice entry")
 c_rej_inv = sim.add_var("Choose between refund with special or standard voucher after rejecting the invoice")
 
-#resources
-inv_app.put("Jessie")
-inv_app.put("Jackie")
-inv_app.put("Addison")
+status_vars = {}  # To store the role-status variable mapping
 
-inv_pros.put("Casey")
-inv_pros.put("Abbie")
-inv_pros.put("Adrian")
-inv_pros.put("Aiden")
-inv_pros.put("Riley")
+with open("role_resource_map.json", "r") as f:
+    role_resource_map = json.load(f)
 
-#finish
+resource_vars = {}  # To store role -> variable
+
+for role, resource_list in role_resource_map.items():
+    role_var = sim.add_var(role)  # Adds a variable with the role name
+    resource_vars[role] = role_var
+    for resource in resource_list:
+        role_var.put(resource)
+
+inv_app = resource_vars["Invoice Approver"]
+inv_pros = resource_vars["Invoice Processor"]
+
+#Var where the finished tasks go to
 done = sim.add_var("done")
 
 with open("res_task_json.json", "r") as f:
@@ -84,16 +92,26 @@ def resource_task_behavior(resource_name, task_name, lookup_dict):
 
 from simpn.reporters import Reporter
 
-
 class MyReporter(Reporter):
     def __init__(self):
         self.logs = []
         self.case_start_times = {}
         self.case_end_times = {}
+        self.time_points = []
+        self.cases_in_system = []
+        self.case_status = {}
+
+        self.resource_used = set()
+        self.task_flow = {}
 
     def callback(self, timed_binding):
 
         binding, time, event = timed_binding
+
+        eid = event.get_id().lower()
+
+        event_name = getattr(event, "name", str(event))
+        bound_values = ", ".join(str(_) for _ in binding)
 
         day = int(time) / 86400
         seconds = int(time) % 86400
@@ -109,18 +127,47 @@ class MyReporter(Reporter):
         print(log_line)
         self.logs.append(log_line)
 
+        case_id = None
+        resource = None
+
         for _ in binding:
-            if isinstance(_, tuple) and isinstance(_[0], str):
-                case_id = _[0]
+            if isinstance(_, tuple):
+                if isinstance(_[0], str):
+                    case_id = _[0]
+                if len(_) > 1 and isinstance(_[1], str):
+                    resource = _[1]
             elif isinstance(_, str):
                 case_id = _
-            else:
-                continue
 
-            if "arrival" in event_name.lower():
+        if resource:
+            self.resource_used.add(resource)
+
+        if case_id:
+            # Mark case as active at first meaningful task
+            if ("arrival" in eid and "start_event" in eid):
                 self.case_start_times[case_id] = time
-            elif "approved" in event_name.lower() or "done" in event_name.lower():
+                self.case_status[case_id] = "active"
+            elif "approved" in eid or "done" in eid:
                 self.case_end_times[case_id] = time
+                self.case_status[case_id] = "done"
+            else:
+                # If not seen yet, mark it as active now
+                self.case_status.setdefault(case_id, "active")
+
+            self.task_flow.setdefault(case_id, []).append(event_name)
+
+        # Now record time point and count cases
+        self.time_points.append(time)
+        self.cases_in_system.append(self.active_cases())
+
+        #self.task_flow.setdefault(case_id, []).append(event_name)
+
+        #self.time_points.append(time)
+
+        #print(f"Debug even.get_id():", event.get_id())
+
+    def active_cases(self):
+        return sum(1 for status in self.case_status.values() if status == "active")
 
     def get_average_case_time(self):
         total_time = 0
@@ -131,6 +178,35 @@ class MyReporter(Reporter):
                 total_time += duration
                 count += 1
         return total_time / count if count > 0 else 0
+
+    def plot_active_cases(self):
+        if not self.time_points:
+            print("No data to plot")
+            return
+
+        times = [t / 3600 for t in self.time_points]
+        plt.figure(figsize=(12, 5))
+        plt.plot(times, self.cases_in_system, marker="o", linestyle='-')
+        plt.title("Number of active cases in the system over time")
+        plt.xlabel("Simulated time (hours)")
+        plt.ylabel("Number of active cases")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+    def summary(self):
+        print("\n--- Summary ---")
+        print("Resources used:")
+        for res in sorted(self.resource_used):
+            print(f" - {res}")
+
+        print("\nTask flow per case:")
+        for case_id, tasks in self.task_flow.items():
+            flow = " → ".join(tasks)
+            print(f"{case_id}: {flow}")
+
+        avg_time = self.get_average_case_time()
+        print(f"\nAverage case time: {avg_time:.2f} seconds")
 
     def get_logs(self):
         return self.logs
@@ -262,10 +338,6 @@ def c_reject_inv(c):
         return [None, SimToken(c)]
 sim.add_event([c_rej_inv], [req_refund_spec_voucher, req_refund_std_voucher], c_reject_inv)
 
-
-#v = Visualisation(sim)
-#v.show()
-
 reporter = MyReporter()
 
 sim.simulate(3628800, MyReporter())
@@ -273,7 +345,11 @@ sim.simulate(3628800, MyReporter())
 avg_case_time = reporter.get_average_case_time()
 print(f"average case time equals {avg_case_time}")
 
+#v = Visualisation(sim)
+#v.show()
 
+reporter.plot_active_cases()
+reporter.summary()
 
 
 
